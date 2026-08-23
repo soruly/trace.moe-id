@@ -2,7 +2,6 @@
 
 [![License](https://img.shields.io/github/license/soruly/trace.moe-id.svg?style=flat-square)](https://github.com/soruly/trace.moe-id/blob/master/LICENSE)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/soruly/trace.moe-id/node.js.yml?style=flat-square)](https://github.com/soruly/trace.moe-id/actions)
-[![pipeline status](https://gitlab.com/soruly/trace.moe-id/badges/master/pipeline.svg?style=flat-square)](https://gitlab.com/soruly/trace.moe-id/commits/master)
 [![npm](https://img.shields.io/npm/v/trace.moe-id.svg?style=flat-square)](https://www.npmjs.com/package/trace.moe-id)
 [![Discord](https://img.shields.io/discord/437578425767559188.svg?style=flat-square)](https://discord.gg/K9jn6Kj)
 
