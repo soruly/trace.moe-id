@@ -1,0 +1,53 @@
+{
+  "name": "trace.moe-id",
+  "version": "1.0.0",
+  "description": "Fast, zero-dependency, isomorphic visual feature descriptor library (MPEG-7, CEDD, FCTH, JCD, AutoColorCorrelogram, OpponentHistogram)",
+  "license": "MIT",
+  "author": "soruly",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soruly/trace.moe-id.git"
+  },
+  "keywords": [
+    "image-descriptors",
+    "cbir",
+    "reverse-image-search",
+    "mpeg-7",
+    "color-layout",
+    "edge-histogram",
+    "cedd",
+    "fcth",
+    "jcd",
+    "lire",
+    "trace.moe",
+    "image-features",
+    "visual-features"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build && npm test",
+    "test": "node --test test/*.test.js",
+    "bench": "node test/benchmark.js",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "prettier": "^3.9.6",
+    "sharp": "^0.35.3",
+    "typescript": "^7.0.2"
+  }
+}
