@@ -15,23 +15,23 @@ Designed for reverse image search, content-based image retrieval (CBIR), and vis
 
 - **Zero Runtime Dependencies**: Works in Node.js, Web Browsers, Web Workers, and Edge runtimes.
 - **Fast Performance**:
-  - Extracts thumbnails in sub-millisecond times ($>5,000\text{ img/s}$ on modern CPU cores).
-  - Distance metrics exceed $1,000,000\text{ to }4,000,000\text{ comparisons/s}$.
+  - Extracts thumbnails in sub-millisecond times (>5,000 img/s on modern CPU cores).
+  - Distance metrics exceed 1,000,000 to 4,000,000 comparisons/s.
 - **Full TypeScript Support**: Comprehensive type definitions for all extractors, inputs, and outputs.
 
 ---
 
 ## Supported Descriptors
 
-| Code     | Extractor              | Feature Vector                                    | Packed Bytes              | Distance Metric           | Description                                                           |
-| :------- | :--------------------- | :------------------------------------------------ | :------------------------ | :------------------------ | :-------------------------------------------------------------------- |
-| **`cl`** | `ColorLayout`          | 33 values (21 Y, 6 Cb, 6 Cr)                      | 35 bytes                  | MPEG-7 Weighted Euclidean | MPEG-7 spatial color distribution via $8\times 8$ DCT                 |
-| **`eh`** | `EdgeHistogram`        | 80 bins (16 sub-images $\times$ 5 edge types)     | 40 bytes                  | MPEG-7 Edge Metric        | MPEG-7 spatial distribution of 5 directional edge types               |
-| **`ce`** | `CEDD`                 | 144 bins                                          | Variable ($\le 54$ bytes) | Tanimoto Distance         | Color and Edge Directivity Descriptor (Fuzzy 10/24 color + edges)     |
-| **`fc`** | `FCTH`                 | 192 bins                                          | Variable ($\le 72$ bytes) | Tanimoto Distance         | Fuzzy Color and Texture Histogram (Fuzzy 10/24 color + Haar wavelets) |
-| **`jc`** | `JCD`                  | 168 bins                                          | Variable ($\le 54$ bytes) | Tanimoto Distance         | Joint Composite Descriptor combining CEDD and FCTH                    |
-| **`ac`** | `AutoColorCorrelogram` | 256 entries (64 HSV colors $\times$ 4 distances)  | 128 bytes                 | Jensen-Shannon Divergence | Spatial color correlations across distance radii $D=\{1, 2, 3, 4\}$   |
-| **`oh`** | `OpponentHistogram`    | 64 bins ($4 \times 4 \times 4$ in Opponent space) | 64 bytes                  | Jensen-Shannon Divergence | Shift-invariant color histogram in $(O_1, O_2, O_3)$ space            |
+| Code     | Extractor              | Feature Vector                            | Packed Bytes          | Distance Metric           | Description                                                           |
+| :------- | :--------------------- | :---------------------------------------- | :-------------------- | :------------------------ | :-------------------------------------------------------------------- |
+| **`cl`** | `ColorLayout`          | 33 values (21 Y, 6 Cb, 6 Cr)              | 35 bytes              | MPEG-7 Weighted Euclidean | MPEG-7 spatial color distribution via 8×8 DCT                         |
+| **`eh`** | `EdgeHistogram`        | 80 bins (16 sub-images × 5 edge types)    | 40 bytes              | MPEG-7 Edge Metric        | MPEG-7 spatial distribution of 5 directional edge types               |
+| **`ce`** | `CEDD`                 | 144 bins                                  | Variable (≤ 54 bytes) | Tanimoto Distance         | Color and Edge Directivity Descriptor (Fuzzy 10/24 color + edges)     |
+| **`fc`** | `FCTH`                 | 192 bins                                  | Variable (≤ 72 bytes) | Tanimoto Distance         | Fuzzy Color and Texture Histogram (Fuzzy 10/24 color + Haar wavelets) |
+| **`jc`** | `JCD`                  | 168 bins                                  | Variable (≤ 54 bytes) | Tanimoto Distance         | Joint Composite Descriptor combining CEDD and FCTH                    |
+| **`ac`** | `AutoColorCorrelogram` | 256 entries (64 HSV colors × 4 distances) | 128 bytes             | Jensen-Shannon Divergence | Spatial color correlations across distance radii D = {1, 2, 3, 4}     |
+| **`oh`** | `OpponentHistogram`    | 64 bins (4 × 4 × 4 in Opponent space)     | 64 bytes              | Jensen-Shannon Divergence | Shift-invariant color histogram in (O1, O2, O3) space                 |
 
 > Note: All implementations are verified against the reference [LIRE](https://github.com/dermotte/LIRE) implementations.
 
@@ -142,7 +142,7 @@ For more details and batch search examples, see the [trace.moe API documentation
 
 Benchmark performed on a single Node.js thread:
 
-### Extraction Throughput ($320 \times 240$ Thumbnail)
+### Extraction Throughput (320 × 240 Thumbnail)
 
 | Extractor | Algorithm            | Avg Time    | Throughput            |
 | :-------- | :------------------- | :---------- | :-------------------- |
