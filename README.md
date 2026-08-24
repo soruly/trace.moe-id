@@ -120,6 +120,22 @@ const dist = ColorLayout.distance(img1.byteArray, img2.byteArray);
 console.log(`Visual Distance: ${dist}`); // 0 = identical
 ```
 
+### 4. Searching via trace.moe API
+
+The extracted `ColorLayout` vector (`cl.base64` or `cl.featureVector`) can be sent directly to `https://api.trace.moe/search` for fast search without uploading raw image files:
+
+```typescript
+const res = await fetch("https://api.trace.moe/search", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    vector: cl.base64, // or cl.featureVector
+  }),
+});
+```
+
+For more details and batch search examples, see the [trace.moe API documentation](https://soruly.github.io/trace.moe-api/#/docs?id=search-by-color-layout-vector).
+
 ---
 
 ## Benchmarks
