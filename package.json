@@ -6,7 +6,7 @@
   "author": "soruly",
   "repository": {
     "type": "git",
-    "url": "https://github.com/soruly/trace.moe-id.git"
+    "url": "git+https://github.com/soruly/trace.moe-id.git"
   },
   "keywords": [
     "image-descriptors",
