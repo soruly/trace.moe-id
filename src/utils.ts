@@ -38,7 +38,11 @@ export function encodeFixedBits(
 /**
  * Decodes a compact Uint8Array into an array of integers (each `bitsPerVal` bits).
  */
-export function decodeFixedBits(bytes: Uint8Array, bitsPerVal: number, count: number): number[] {
+export function decodeFixedBits(
+  bytes: Uint8Array,
+  bitsPerVal: number,
+  count: number,
+): number[] {
   const result = new Array<number>(count);
   let bitOffset = 0;
 
@@ -56,35 +60,86 @@ export function decodeFixedBits(bytes: Uint8Array, bitsPerVal: number, count: nu
   return result;
 }
 
+const BASE64_URL_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const BASE64_URL_LOOKUP = new Uint8Array(256);
+for (let i = 0; i < BASE64_URL_CHARS.length; i++) {
+  BASE64_URL_LOOKUP[BASE64_URL_CHARS.charCodeAt(i)] = i;
+}
+
 /**
  * Converts a Uint8Array into an unpadded URL-safe base64 string.
  */
 export function bytesToBase64Url(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(bytes).toString("base64url");
+  let result = "";
+  const len = bytes.length;
+  let i = 0;
+
+  for (; i + 2 < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = bytes[i + 1];
+    const b2 = bytes[i + 2];
+    result +=
+      BASE64_URL_CHARS[b0 >> 2] +
+      BASE64_URL_CHARS[((b0 & 3) << 4) | (b1 >> 4)] +
+      BASE64_URL_CHARS[((b1 & 15) << 2) | (b2 >> 6)] +
+      BASE64_URL_CHARS[b2 & 63];
   }
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+
+  if (i < len) {
+    const b0 = bytes[i];
+    if (i + 1 < len) {
+      const b1 = bytes[i + 1];
+      result +=
+        BASE64_URL_CHARS[b0 >> 2] +
+        BASE64_URL_CHARS[((b0 & 3) << 4) | (b1 >> 4)] +
+        BASE64_URL_CHARS[(b1 & 15) << 2];
+    } else {
+      result += BASE64_URL_CHARS[b0 >> 2] + BASE64_URL_CHARS[(b0 & 3) << 4];
+    }
   }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  return result;
 }
 
 /**
  * Converts an unpadded URL-safe base64 string back into a Uint8Array.
  */
-export function base64UrlToBytes(base64url: string): Uint8Array {
-  let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-  while (base64.length % 4 !== 0) {
-    base64 += "=";
+export function base64UrlToBytes(str: string): Uint8Array {
+  const len = str.length;
+  if (len === 0) return new Uint8Array(0);
+
+  const mod = len % 4;
+  const numFullChunks = Math.floor(len / 4);
+  let byteLen = numFullChunks * 3;
+  if (mod === 2) byteLen += 1;
+  else if (mod === 3) byteLen += 2;
+
+  const bytes = new Uint8Array(byteLen);
+  let byteIdx = 0;
+  let i = 0;
+
+  for (let c = 0; c < numFullChunks; c++, i += 4) {
+    const c0 = BASE64_URL_LOOKUP[str.charCodeAt(i)];
+    const c1 = BASE64_URL_LOOKUP[str.charCodeAt(i + 1)];
+    const c2 = BASE64_URL_LOOKUP[str.charCodeAt(i + 2)];
+    const c3 = BASE64_URL_LOOKUP[str.charCodeAt(i + 3)];
+
+    bytes[byteIdx++] = (c0 << 2) | (c1 >> 4);
+    bytes[byteIdx++] = ((c1 & 15) << 4) | (c2 >> 2);
+    bytes[byteIdx++] = ((c2 & 3) << 6) | c3;
   }
-  if (typeof Buffer !== "undefined") {
-    return new Uint8Array(Buffer.from(base64, "base64"));
+
+  if (mod === 2) {
+    const c0 = BASE64_URL_LOOKUP[str.charCodeAt(i)];
+    const c1 = BASE64_URL_LOOKUP[str.charCodeAt(i + 1)];
+    bytes[byteIdx++] = (c0 << 2) | (c1 >> 4);
+  } else if (mod === 3) {
+    const c0 = BASE64_URL_LOOKUP[str.charCodeAt(i)];
+    const c1 = BASE64_URL_LOOKUP[str.charCodeAt(i + 1)];
+    const c2 = BASE64_URL_LOOKUP[str.charCodeAt(i + 2)];
+    bytes[byteIdx++] = (c0 << 2) | (c1 >> 4);
+    bytes[byteIdx++] = ((c1 & 15) << 4) | (c2 >> 2);
   }
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
+
   return bytes;
 }
