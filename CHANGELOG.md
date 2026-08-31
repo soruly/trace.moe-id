@@ -5,11 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-01
+
+### Added
+
+- **Compact URL-Safe Base64 Codecs**:
+  - Added `encode(vector: number[]): string` and `decode(hash: string): number[]` to all extractors and as standalone named exports.
+  - Bit-packed, unpadded URL-safe Base64 string representations:
+    - **`ColorLayout` (`cl`)**: 28 chars (21 bytes / 168 bits)
+    - **`EdgeHistogram` (`eh`)**: 40 chars (30 bytes / 240 bits)
+    - **`CEDD` (`ce`)**: 72 chars (54 bytes / 432 bits)
+    - **`FCTH` (`fc`)**: 96 chars (72 bytes / 576 bits)
+    - **`JCD` (`jc`)**: 112 chars (84 bytes / 672 bits)
+    - **`OpponentHistogram` (`oh`)**: 75 chars (56 bytes / 448 bits)
+    - **`AutoColorCorrelogram` (`ac`)**: 171 chars (128 bytes / 1024 bits)
+- **Universal Distance Calculation**:
+  - `distance(a, b)` now accepts either numerical vectors (`number[]`) or URL-safe Base64 hash strings (`string`).
+
+### Changed
+
+- **Direct Vector Return from `extract()`**:
+  - `extract(image)` now directly returns `number[]` (the numerical feature vector) rather than a `FeatureResult` object.
+  - Batch `extract(image, codes)` now returns `Record<FeatureCode, number[]>`.
+- **Streamlined `FeatureExtractor` Interface**:
+  - Focused strictly on core methods: `extract`, `encode`, `decode`, `distance`.
+
+### Removed
+
+- **Breaking**: Removed `FeatureResult` interface (`featureVector`, `byteArray`, `base64`).
+- **Breaking**: Removed legacy LIRE `byteArray` representations and `bytesToBase64`/`base64ToBytes` helpers.
+- **Breaking**: Removed static `name` and `code` properties from `FeatureExtractor` objects.
 
 ---
 
-## [1.0.0] - 2026-08-31
+## [1.0.0] - 2026-08-23
 
 ### Added
 
