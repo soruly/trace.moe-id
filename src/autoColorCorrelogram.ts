@@ -1,5 +1,5 @@
-import { FeatureExtractor, FeatureResult, PixelData } from "./types.js";
-import { bytesToBase64 } from "./utils.js";
+import { FeatureExtractor, PixelData } from "./types.js";
+import { encodeFixedBits, decodeFixedBits, bytesToBase64Url, base64UrlToBytes } from "./utils.js";
 
 const DISTANCE_SET = [1, 2, 3, 4];
 const NUM_COLORS = 64;
@@ -41,128 +41,112 @@ function quantizeHsv(h: number, s: number, v: number): number {
   return binH * 8 + binS * 2 + binV;
 }
 
+/**
+ * Encodes 256 4-bit AutoColorCorrelogram bins into a compact URL-safe base64 string.
+ */
+export function encodeAutoColorCorrelogram(vector: number[]): string {
+  return bytesToBase64Url(encodeFixedBits(vector, 4, 128));
+}
+
+/**
+ * Decodes a compact URL-safe base64 string into a 256-bin AutoColorCorrelogram vector.
+ */
+export function decodeAutoColorCorrelogram(hash: string): number[] {
+  const bytes = base64UrlToBytes(hash);
+  return decodeFixedBits(bytes, 4, 256);
+}
+
+function extractAutoColorCorrelogramVector(image: PixelData): number[] {
+  const width = image.width;
+  const height = image.height;
+  const channels = image.channels ?? 4;
+  const data = image.data;
+
+  const img = new Int32Array(width * height);
+  const histogram = new Int32Array(NUM_COLORS);
+
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x++) {
+      const idx = (rowOffset + x) * channels;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const [h, s, v] = convertRgbToHsv(r, g, b);
+      const c = quantizeHsv(h, s, v);
+      img[rowOffset + x] = c;
+      histogram[c]++;
+    }
+  }
+
+  const numDists = DISTANCE_SET.length;
+  // 64 colors x 4 distances = 256 entries
+  const correlogram = new Float32Array(NUM_COLORS * numDists);
+
+  for (let di = 0; di < numDists; di++) {
+    const d = DISTANCE_SET[di];
+    for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        const c = img[y * width + x];
+
+        // Horizontal bounds
+        for (let dx = -d; dx <= d; dx++) {
+          const X = x + dx;
+          const Y1 = y - d;
+          if (X >= 0 && X < width && Y1 >= 0 && Y1 < height && img[Y1 * width + X] === c) {
+            correlogram[c * numDists + di]++;
+          }
+          const Y2 = y + d;
+          if (X >= 0 && X < width && Y2 >= 0 && Y2 < height && img[Y2 * width + X] === c) {
+            correlogram[c * numDists + di]++;
+          }
+        }
+
+        // Vertical bounds
+        for (let dy = -d + 1; dy <= d - 1; dy++) {
+          const X1 = x - d;
+          const Y = y + dy;
+          if (X1 >= 0 && X1 < width && Y >= 0 && Y < height && img[Y * width + X1] === c) {
+            correlogram[c * numDists + di]++;
+          }
+          const X2 = x + d;
+          if (X2 >= 0 && X2 < width && Y >= 0 && Y < height && img[Y * width + X2] === c) {
+            correlogram[c * numDists + di]++;
+          }
+        }
+      }
+    }
+
+    // Normalization matching LIRE NaiveAutoCorrelogramExtraction
+    for (let c = 0; c < NUM_COLORS; c++) {
+      if (histogram[c] > 0) {
+        const rawCount = correlogram[c * numDists + di];
+        correlogram[c * numDists + di] = Math.floor(16.0 * (rawCount / (histogram[c] * 8.0 * d)));
+      }
+    }
+  }
+
+  return Array.from(correlogram);
+}
+
 export const AutoColorCorrelogram: FeatureExtractor = {
-  name: "AutoColorCorrelogram",
-  code: "ac",
-
-  extract(image: PixelData): FeatureResult {
-    const width = image.width;
-    const height = image.height;
-    const channels = image.channels ?? 4;
-    const data = image.data;
-
-    const img = new Int32Array(width * height);
-    const histogram = new Int32Array(NUM_COLORS);
-
-    for (let y = 0; y < height; y++) {
-      const rowOffset = y * width;
-      for (let x = 0; x < width; x++) {
-        const idx = (rowOffset + x) * channels;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        const [h, s, v] = convertRgbToHsv(r, g, b);
-        const c = quantizeHsv(h, s, v);
-        img[rowOffset + x] = c;
-        histogram[c]++;
-      }
-    }
-
-    const numDists = DISTANCE_SET.length;
-    // 64 colors x 4 distances = 256 entries
-    const correlogram = new Float32Array(NUM_COLORS * numDists);
-
-    for (let di = 0; di < numDists; di++) {
-      const d = DISTANCE_SET[di];
-      for (let x = 0; x < width; x++) {
-        for (let y = 0; y < height; y++) {
-          const c = img[y * width + x];
-
-          // Horizontal bounds
-          for (let dx = -d; dx <= d; dx++) {
-            const X = x + dx;
-            const Y1 = y - d;
-            if (X >= 0 && X < width && Y1 >= 0 && Y1 < height && img[Y1 * width + X] === c) {
-              correlogram[c * numDists + di]++;
-            }
-            const Y2 = y + d;
-            if (X >= 0 && X < width && Y2 >= 0 && Y2 < height && img[Y2 * width + X] === c) {
-              correlogram[c * numDists + di]++;
-            }
-          }
-
-          // Vertical bounds
-          for (let dy = -d + 1; dy <= d - 1; dy++) {
-            const X1 = x - d;
-            const Y = y + dy;
-            if (X1 >= 0 && X1 < width && Y >= 0 && Y < height && img[Y * width + X1] === c) {
-              correlogram[c * numDists + di]++;
-            }
-            const X2 = x + d;
-            if (X2 >= 0 && X2 < width && Y >= 0 && Y < height && img[Y * width + X2] === c) {
-              correlogram[c * numDists + di]++;
-            }
-          }
-        }
-      }
-
-      // Normalization matching LIRE NaiveAutoCorrelogramExtraction
-      for (let c = 0; c < NUM_COLORS; c++) {
-        if (histogram[c] > 0) {
-          const rawCount = correlogram[c * numDists + di];
-          correlogram[c * numDists + di] = Math.floor(16.0 * (rawCount / (histogram[c] * 8.0 * d)));
-        }
-      }
-    }
-
-    const featureVector = Array.from(correlogram);
-
-    // Pack into 128 bytes (256 4-bit nibbles)
-    const byteArray = new Uint8Array((NUM_COLORS * numDists) / 2);
-    let pos = 0;
-    for (let i = 0; i < NUM_COLORS; i++) {
-      for (let j = 0; j < numDists; j += 2) {
-        const val0 = Math.floor(correlogram[i * numDists + j]) & 0x0f;
-        const val1 = Math.floor(correlogram[i * numDists + j + 1]) & 0x0f;
-        const tmp = (val0 << 4) | val1;
-        byteArray[pos++] = (tmp - 128) & 0xff;
-      }
-    }
-
-    return {
-      featureVector,
-      byteArray,
-      base64: bytesToBase64(byteArray),
-    };
+  extract(image: PixelData): number[] {
+    return extractAutoColorCorrelogramVector(image);
   },
 
-  distance(a: number[] | Uint8Array, b: number[] | Uint8Array): number {
-    let vecA: number[];
-    let vecB: number[];
+  encode: encodeAutoColorCorrelogram,
+  decode: decodeAutoColorCorrelogram,
 
-    if (a instanceof Uint8Array || a.length === 128) {
-      vecA = new Array(256);
-      let count = 0;
-      for (let i = 0; i < a.length; i++) {
-        const tmp = (a[i] + 128) & 0xff;
-        vecA[count++] = (tmp >> 4) & 0x0f;
-        vecA[count++] = tmp & 0x0f;
+  distance(a: number[] | string, b: number[] | string): number {
+    const toVector = (x: number[] | string): number[] => {
+      if (typeof x === "string") {
+        return decodeAutoColorCorrelogram(x);
       }
-    } else {
-      vecA = a as number[];
-    }
+      return x;
+    };
 
-    if (b instanceof Uint8Array || b.length === 128) {
-      vecB = new Array(256);
-      let count = 0;
-      for (let i = 0; i < b.length; i++) {
-        const tmp = (b[i] + 128) & 0xff;
-        vecB[count++] = (tmp >> 4) & 0x0f;
-        vecB[count++] = tmp & 0x0f;
-      }
-    } else {
-      vecB = b as number[];
-    }
+    const vecA = toVector(a);
+    const vecB = toVector(b);
 
     // Jensen-Shannon Divergence matching LIRE
     let sum = 0.0;

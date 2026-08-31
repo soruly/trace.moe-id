@@ -38,28 +38,25 @@ test("Pattern Reference Regression Tests", async (t) => {
 
       for (const [code, ext] of Object.entries(extractors)) {
         await pt.test(`Extractor: ${code}`, () => {
-          const res = results[code];
+          const vector = results[code];
           const expected = ref.features[code];
 
-          assert.ok(res, `Missing result for ${code}`);
-          assert.equal(
-            res.base64,
-            expected.base64,
-            `Base64 mismatch for ${code} on ${patternName}`,
-          );
+          assert.ok(vector, `Missing result for ${code}`);
           assert.deepEqual(
-            Array.from(res.byteArray),
-            expected.bytes,
-            `Byte array mismatch for ${code} on ${patternName}`,
-          );
-          assert.deepEqual(
-            res.featureVector,
+            vector,
             expected.vector,
             `Vector mismatch for ${code} on ${patternName}`,
           );
 
+          const encoded = ext.encode(vector);
+          assert.equal(
+            encoded,
+            expected.hash,
+            `Hash string mismatch for ${code} on ${patternName}`,
+          );
+
           // Self distance invariant: d(x, x) === 0
-          const distSelf = ext.distance(res.byteArray, res.byteArray);
+          const distSelf = ext.distance(vector, vector);
           assert.equal(distSelf, 0, `Self-distance should be 0 for ${code}`);
         });
       }
@@ -73,14 +70,14 @@ test("Distance Metric Symmetry and Triangle Properties", async () => {
   const redImg = await loadFixtureImage("solid_red.png");
 
   for (const [code, ext] of Object.entries(extractors)) {
-    const resBlack = ext.extract(blackImg);
-    const resWhite = ext.extract(whiteImg);
-    const resRed = ext.extract(redImg);
+    const vBlack = ext.extract(blackImg);
+    const vWhite = ext.extract(whiteImg);
+    const vRed = ext.extract(redImg);
 
-    const dBlackWhite = ext.distance(resBlack.byteArray, resWhite.byteArray);
-    const dWhiteBlack = ext.distance(resWhite.byteArray, resBlack.byteArray);
-    const dBlackRed = ext.distance(resBlack.byteArray, resRed.byteArray);
-    const dWhiteRed = ext.distance(resWhite.byteArray, resRed.byteArray);
+    const dBlackWhite = ext.distance(vBlack, vWhite);
+    const dWhiteBlack = ext.distance(vWhite, vBlack);
+    const dBlackRed = ext.distance(vBlack, vRed);
+    const dWhiteRed = ext.distance(vWhite, vRed);
 
     // Non-negativity
     assert.ok(dBlackWhite >= 0);
@@ -89,5 +86,9 @@ test("Distance Metric Symmetry and Triangle Properties", async () => {
 
     // Symmetry: d(A, B) === d(B, A)
     assert.equal(dBlackWhite, dWhiteBlack, `Distance should be symmetric for ${code}`);
+
+    // Packed distance matches vector distance
+    const dPacked = ext.distance(ext.encode(vBlack), ext.encode(vWhite));
+    assert.equal(dBlackWhite, dPacked);
   }
 });

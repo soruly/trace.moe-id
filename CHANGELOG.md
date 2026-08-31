@@ -7,19 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **ColorLayout Performance Optimizations**:
-  - Implemented upfront integer scanline grid coordinate calculation (`xStart`, `yStart`), eliminating per-pixel floating-point division and `Math.floor()` operations.
-  - Reorganized image traversal to scan rows and blocks sequentially (`by` $\rightarrow$ `y` $\rightarrow$ `bx` $\rightarrow$ `x`), enabling monotonic pointer iteration (`ptr += channels`) for optimal CPU L1/L2 cache locality.
-  - Switched color space conversion from per-pixel evaluation to 8×8 block average level, reducing floating-point color conversions from $W \times H$ times to exactly 64 times per frame.
-  - Optimized 1D DCT stage with flat `Float32Array` buffers and fast inverse multiplication.
-  - Achieved ~2.8× speedup on thumbnails (15,300+ ops/sec at 320×240) and ~3.8× speedup on high-resolution images (1,580+ ops/sec at 1024×681).
-
-### Fixed
-
-- Updated regression test reference fixtures in `test/fixtures/reference_results.json` to reflect the optimized ColorLayout coefficient calculations.
-
 ---
 
 ## [1.0.0] - 2026-08-31

@@ -1,5 +1,5 @@
-import { FeatureExtractor, FeatureResult, PixelData } from "./types.js";
-import { bytesToBase64 } from "./utils.js";
+import { FeatureExtractor, PixelData } from "./types.js";
+import { encodeFixedBits, decodeFixedBits, bytesToBase64Url, base64UrlToBytes } from "./utils.js";
 
 const QUANT_TABLE = [
   [0.010867, 0.057915, 0.099526, 0.144849, 0.195573, 0.260504, 0.358031, 0.530128],
@@ -25,226 +25,203 @@ const NON_DIRECTIONAL_EDGE = 3;
 const DIAGONAL_45_EDGE = 4;
 const DIAGONAL_135_EDGE = 5;
 
-export const EdgeHistogram: FeatureExtractor = {
-  name: "EdgeHistogram",
-  code: "eh",
+/**
+ * Encodes 80 3-bit EdgeHistogram bins into a compact URL-safe base64 string.
+ */
+export function encodeEdgeHistogram(vector: number[]): string {
+  return bytesToBase64Url(encodeFixedBits(vector, 3, 30));
+}
 
-  extract(image: PixelData): FeatureResult {
-    const width = image.width;
-    const height = image.height;
-    const channels = image.channels ?? 4;
-    const data = image.data;
+/**
+ * Decodes a compact URL-safe base64 string into an 80-bin EdgeHistogram vector.
+ */
+export function decodeEdgeHistogram(hash: string): number[] {
+  const bytes = base64UrlToBytes(hash);
+  return decodeFixedBits(bytes, 3, 80);
+}
 
-    // 1. Calculate block size
-    const a = Math.floor(Math.sqrt((width * height) / 1100));
-    let blockSize = Math.floor(a / 2) * 2;
-    if (blockSize <= 0) blockSize = 2;
-    const halfBlock = blockSize >> 1;
-    const invBlockArea4 = 4.0 / (blockSize * blockSize);
+function extractEdgeHistogramVector(image: PixelData): number[] {
+  const width = image.width;
+  const height = image.height;
+  const channels = image.channels ?? 4;
+  const data = image.data;
 
-    // 2. Convert to luminance (grey level)
-    const grey = new Float64Array(width * height);
-    for (let y = 0; y < height; y++) {
-      const rowOffset = y * width;
-      for (let x = 0; x < width; x++) {
-        const idx = (rowOffset + x) * channels;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        const yy = (0.299 * r + 0.587 * g + 0.114 * b) / 256.0;
-        grey[rowOffset + x] = Math.floor(219.0 * yy + 16.5);
-      }
+  // 1. Calculate block size
+  const a = Math.floor(Math.sqrt((width * height) / 1100));
+  let blockSize = Math.floor(a / 2) * 2;
+  if (blockSize <= 0) blockSize = 2;
+  const halfBlock = blockSize >> 1;
+  const invBlockArea4 = 4.0 / (blockSize * blockSize);
+
+  // 2. Convert to luminance (grey level)
+  const grey = new Float64Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x++) {
+      const idx = (rowOffset + x) * channels;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const yy = (0.299 * r + 0.587 * g + 0.114 * b) / 256.0;
+      grey[rowOffset + x] = Math.floor(219.0 * yy + 16.5);
     }
+  }
 
-    const localHistogram = new Float64Array(80);
-    const countLocal = new Int32Array(16);
+  const localHistogram = new Float64Array(80);
+  const countLocal = new Int32Array(16);
 
-    const maxX = width - blockSize;
-    const maxY = height - blockSize;
+  // 3. Process blocks
+  for (let y = 0; y <= height - blockSize; y += blockSize) {
+    const subLocalY = Math.min(Math.floor((y * 4) / height), 3);
+    for (let x = 0; x <= width - blockSize; x += blockSize) {
+      const subLocalX = Math.min(Math.floor((x * 4) / width), 3);
+      const subLocalIdx = (subLocalY << 2) + subLocalX;
+      countLocal[subLocalIdx]++;
 
-    // 3. Scan image blocks
-    for (let j = 0; j <= maxY; j += blockSize) {
-      for (let i = 0; i <= maxX; i += blockSize) {
-        const subX = Math.floor((i * 4) / width);
-        const subY = Math.floor((j * 4) / height);
-        const subLocalIdx = subX + (subY << 2);
-        countLocal[subLocalIdx]++;
+      // Compute average grey levels for 4 sub-blocks
+      let avg1 = 0;
+      let avg2 = 0;
+      let avg3 = 0;
+      let avg4 = 0;
 
-        // Compute 4 sub-block luminance averages
-        let avg1 = 0;
-        let avg2 = 0;
-        let avg3 = 0;
-        let avg4 = 0;
-
-        for (let n = 0; n < halfBlock; n++) {
-          const row1 = (j + n) * width;
-          for (let m = 0; m < halfBlock; m++) {
-            avg1 += grey[row1 + (i + m)];
-          }
-          for (let m = halfBlock; m < blockSize; m++) {
-            avg2 += grey[row1 + (i + m)];
-          }
-        }
-
-        for (let n = halfBlock; n < blockSize; n++) {
-          const row2 = (j + n) * width;
-          for (let m = 0; m < halfBlock; m++) {
-            avg3 += grey[row2 + (i + m)];
-          }
-          for (let m = halfBlock; m < blockSize; m++) {
-            avg4 += grey[row2 + (i + m)];
-          }
-        }
-
-        avg1 *= invBlockArea4;
-        avg2 *= invBlockArea4;
-        avg3 *= invBlockArea4;
-        avg4 *= invBlockArea4;
-
-        // Apply edge filters
-        const avg = [avg1, avg2, avg3, avg4];
-        let maxStrength = 0;
-        let edgeType = NO_EDGE;
-
-        const s0 = Math.abs(
-          avg[0] * EDGE_FILTER[0][0] +
-            avg[1] * EDGE_FILTER[0][1] +
-            avg[2] * EDGE_FILTER[0][2] +
-            avg[3] * EDGE_FILTER[0][3],
-        );
-        const s1 = Math.abs(
-          avg[0] * EDGE_FILTER[1][0] +
-            avg[1] * EDGE_FILTER[1][1] +
-            avg[2] * EDGE_FILTER[1][2] +
-            avg[3] * EDGE_FILTER[1][3],
-        );
-        const s2 = Math.abs(
-          avg[0] * EDGE_FILTER[2][0] +
-            avg[1] * EDGE_FILTER[2][1] +
-            avg[2] * EDGE_FILTER[2][2] +
-            avg[3] * EDGE_FILTER[2][3],
-        );
-        const s3 = Math.abs(
-          avg[0] * EDGE_FILTER[3][0] +
-            avg[1] * EDGE_FILTER[3][1] +
-            avg[2] * EDGE_FILTER[3][2] +
-            avg[3] * EDGE_FILTER[3][3],
-        );
-        const s4 = Math.abs(
-          avg[0] * EDGE_FILTER[4][0] +
-            avg[1] * EDGE_FILTER[4][1] +
-            avg[2] * EDGE_FILTER[4][2] +
-            avg[3] * EDGE_FILTER[4][3],
-        );
-
-        maxStrength = s0;
-        edgeType = VERTICAL_EDGE;
-        if (s1 > maxStrength) {
-          maxStrength = s1;
-          edgeType = HORIZONTAL_EDGE;
-        }
-        if (s2 > maxStrength) {
-          maxStrength = s2;
-          edgeType = DIAGONAL_45_EDGE;
-        }
-        if (s3 > maxStrength) {
-          maxStrength = s3;
-          edgeType = DIAGONAL_135_EDGE;
-        }
-        if (s4 > maxStrength) {
-          maxStrength = s4;
-          edgeType = NON_DIRECTIONAL_EDGE;
-        }
-
-        if (maxStrength < 11) {
-          edgeType = NO_EDGE;
-        }
-
-        switch (edgeType) {
-          case VERTICAL_EDGE:
-            localHistogram[subLocalIdx * 5]++;
-            break;
-          case HORIZONTAL_EDGE:
-            localHistogram[subLocalIdx * 5 + 1]++;
-            break;
-          case DIAGONAL_45_EDGE:
-            localHistogram[subLocalIdx * 5 + 2]++;
-            break;
-          case DIAGONAL_135_EDGE:
-            localHistogram[subLocalIdx * 5 + 3]++;
-            break;
-          case NON_DIRECTIONAL_EDGE:
-            localHistogram[subLocalIdx * 5 + 4]++;
-            break;
+      for (let j = 0; j < halfBlock; j++) {
+        const row1 = (y + j) * width;
+        const row2 = (y + halfBlock + j) * width;
+        for (let i = 0; i < halfBlock; i++) {
+          avg1 += grey[row1 + x + i];
+          avg2 += grey[row1 + x + halfBlock + i];
+          avg3 += grey[row2 + x + i];
+          avg4 += grey[row2 + x + halfBlock + i];
         }
       }
-    }
 
-    // Normalize per sub-image
-    for (let k = 0; k < 80; k++) {
-      const cnt = countLocal[Math.floor(k / 5)];
-      if (cnt > 0) {
-        localHistogram[k] /= cnt;
+      avg1 *= invBlockArea4;
+      avg2 *= invBlockArea4;
+      avg3 *= invBlockArea4;
+      avg4 *= invBlockArea4;
+
+      // Apply edge filters
+      const avg = [avg1, avg2, avg3, avg4];
+      let maxStrength = 0;
+      let edgeType = NO_EDGE;
+
+      const s0 = Math.abs(
+        avg[0] * EDGE_FILTER[0][0] +
+          avg[1] * EDGE_FILTER[0][1] +
+          avg[2] * EDGE_FILTER[0][2] +
+          avg[3] * EDGE_FILTER[0][3],
+      );
+      const s1 = Math.abs(
+        avg[0] * EDGE_FILTER[1][0] +
+          avg[1] * EDGE_FILTER[1][1] +
+          avg[2] * EDGE_FILTER[1][2] +
+          avg[3] * EDGE_FILTER[1][3],
+      );
+      const s2 = Math.abs(
+        avg[0] * EDGE_FILTER[2][0] +
+          avg[1] * EDGE_FILTER[2][1] +
+          avg[2] * EDGE_FILTER[2][2] +
+          avg[3] * EDGE_FILTER[2][3],
+      );
+      const s3 = Math.abs(
+        avg[0] * EDGE_FILTER[3][0] +
+          avg[1] * EDGE_FILTER[3][1] +
+          avg[2] * EDGE_FILTER[3][2] +
+          avg[3] * EDGE_FILTER[3][3],
+      );
+      const s4 = Math.abs(
+        avg[0] * EDGE_FILTER[4][0] +
+          avg[1] * EDGE_FILTER[4][1] +
+          avg[2] * EDGE_FILTER[4][2] +
+          avg[3] * EDGE_FILTER[4][3],
+      );
+
+      maxStrength = s0;
+      edgeType = VERTICAL_EDGE;
+
+      if (s1 > maxStrength) {
+        maxStrength = s1;
+        edgeType = HORIZONTAL_EDGE;
       }
-    }
+      if (s2 > maxStrength) {
+        maxStrength = s2;
+        edgeType = DIAGONAL_45_EDGE;
+      }
+      if (s3 > maxStrength) {
+        maxStrength = s3;
+        edgeType = DIAGONAL_135_EDGE;
+      }
+      if (s4 > maxStrength) {
+        maxStrength = s4;
+        edgeType = NON_DIRECTIONAL_EDGE;
+      }
 
-    // Quantize into 80 bins [0..7]
-    const bins = new Int32Array(80);
-    for (let i = 0; i < 80; i++) {
-      const qRow = i % 5;
-      for (let j = 0; j < 8; j++) {
-        bins[i] = j;
-        const quantVal = j < 7 ? (QUANT_TABLE[qRow][j] + QUANT_TABLE[qRow][j + 1]) / 2.0 : 1.0;
-        if (localHistogram[i] <= quantVal) {
+      if (maxStrength < 11) {
+        edgeType = NO_EDGE;
+      }
+
+      switch (edgeType) {
+        case VERTICAL_EDGE:
+          localHistogram[subLocalIdx * 5]++;
           break;
-        }
+        case HORIZONTAL_EDGE:
+          localHistogram[subLocalIdx * 5 + 1]++;
+          break;
+        case DIAGONAL_45_EDGE:
+          localHistogram[subLocalIdx * 5 + 2]++;
+          break;
+        case DIAGONAL_135_EDGE:
+          localHistogram[subLocalIdx * 5 + 3]++;
+          break;
+        case NON_DIRECTIONAL_EDGE:
+          localHistogram[subLocalIdx * 5 + 4]++;
+          break;
       }
     }
+  }
 
-    const featureVector = Array.from(bins);
-
-    // Pack into 40 bytes matching LIRE: ((b0 << 4) | b1) - 128
-    const byteArray = new Uint8Array(40);
-    for (let i = 0; i < 40; i++) {
-      const high = bins[i << 1] & 0x0f;
-      const low = bins[(i << 1) + 1] & 0x0f;
-      const val = (high << 4) | low;
-      // Convert (val - 128) signed byte to Uint8 byte representation
-      byteArray[i] = (val - 128) & 0xff;
+  // Normalize per sub-image
+  for (let k = 0; k < 80; k++) {
+    const cnt = countLocal[Math.floor(k / 5)];
+    if (cnt > 0) {
+      localHistogram[k] /= cnt;
     }
+  }
 
-    return {
-      featureVector,
-      byteArray,
-      base64: bytesToBase64(byteArray),
-    };
+  // Quantize into 80 bins [0..7]
+  const bins = new Int32Array(80);
+  for (let i = 0; i < 80; i++) {
+    const qRow = i % 5;
+    for (let j = 0; j < 8; j++) {
+      bins[i] = j;
+      const quantVal = j < 7 ? (QUANT_TABLE[qRow][j] + QUANT_TABLE[qRow][j + 1]) / 2.0 : 1.0;
+      if (localHistogram[i] <= quantVal) {
+        break;
+      }
+    }
+  }
+
+  return Array.from(bins);
+}
+
+export const EdgeHistogram: FeatureExtractor = {
+  extract(image: PixelData): number[] {
+    return extractEdgeHistogramVector(image);
   },
 
-  distance(a: number[] | Uint8Array, b: number[] | Uint8Array): number {
-    let binsA: number[];
-    let binsB: number[];
+  encode: encodeEdgeHistogram,
+  decode: decodeEdgeHistogram,
 
-    if (a instanceof Uint8Array || (Array.isArray(a) && a.length === 40)) {
-      binsA = new Array(80);
-      for (let i = 0; i < 40; i++) {
-        const tmp = (a[i] + 128) & 0xff;
-        binsA[(i << 1) + 1] = tmp & 0x0f;
-        binsA[i << 1] = (tmp >> 4) & 0x0f;
+  distance(a: number[] | string, b: number[] | string): number {
+    const toVector = (x: number[] | string): number[] => {
+      if (typeof x === "string") {
+        return decodeEdgeHistogram(x);
       }
-    } else {
-      binsA = a as number[];
-    }
+      return x;
+    };
 
-    if (b instanceof Uint8Array || (Array.isArray(b) && b.length === 40)) {
-      binsB = new Array(80);
-      for (let i = 0; i < 40; i++) {
-        const tmp = (b[i] + 128) & 0xff;
-        binsB[(i << 1) + 1] = tmp & 0x0f;
-        binsB[i << 1] = (tmp >> 4) & 0x0f;
-      }
-    } else {
-      binsB = b as number[];
-    }
+    const binsA = toVector(a);
+    const binsB = toVector(b);
 
     let result = 0.0;
     for (let i = 0; i < 80; i++) {

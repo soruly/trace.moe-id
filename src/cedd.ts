@@ -1,5 +1,5 @@
-import { FeatureExtractor, FeatureResult, PixelData } from "./types.js";
-import { bytesToBase64 } from "./utils.js";
+import { FeatureExtractor, PixelData } from "./types.js";
+import { encodeFixedBits, decodeFixedBits, bytesToBase64Url, base64UrlToBytes } from "./utils.js";
 
 const HUE_MEMBERSHIP = [
   0, 0, 5, 10, 5, 10, 35, 50, 35, 50, 70, 85, 70, 85, 150, 165, 150, 165, 195, 205, 195, 205, 265,
@@ -200,244 +200,224 @@ export function applyFuzzy24(
   }
 }
 
+/**
+ * Encodes 144 3-bit CEDD bins into a compact URL-safe base64 string.
+ */
+export function encodeCEDD(vector: number[]): string {
+  return bytesToBase64Url(encodeFixedBits(vector, 3, 54));
+}
+
+/**
+ * Decodes a compact URL-safe base64 string into a 144-bin CEDD vector.
+ */
+export function decodeCEDD(hash: string): number[] {
+  const bytes = base64UrlToBytes(hash);
+  return decodeFixedBits(bytes, 3, 144);
+}
+
+function extractCEDDVector(image: PixelData): number[] {
+  const width = image.width;
+  const height = image.height;
+  const channels = image.channels ?? 4;
+  const data = image.data;
+
+  let numberOfBlocks = -1;
+  const minDim = Math.min(width, height);
+  if (minDim >= 80) numberOfBlocks = 1600;
+  else if (minDim >= 40) numberOfBlocks = 400;
+
+  let stepX = 2;
+  let stepY = 2;
+  if (numberOfBlocks > 0) {
+    stepX = Math.floor(width / Math.sqrt(numberOfBlocks));
+    stepY = Math.floor(height / Math.sqrt(numberOfBlocks));
+    if (stepX % 2 !== 0) stepX -= 1;
+    if (stepY % 2 !== 0) stepY -= 1;
+  }
+  if (stepX <= 0) stepX = 2;
+  if (stepY <= 0) stepY = 2;
+
+  const imgGridR = new Int32Array(width * height);
+  const imgGridG = new Int32Array(width * height);
+  const imgGridB = new Int32Array(width * height);
+  const imgGridLuma = new Float64Array(width * height);
+
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x++) {
+      const idx = (rowOffset + x) * channels;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      imgGridR[rowOffset + x] = r;
+      imgGridG[rowOffset + x] = g;
+      imgGridB[rowOffset + x] = b;
+      imgGridLuma[rowOffset + x] = 0.114 * b + 0.587 * g + 0.299 * r;
+    }
+  }
+
+  let tempMaxX = stepX * Math.floor(width >> 1);
+  let tempMaxY = stepY * Math.floor(height >> 1);
+  if (numberOfBlocks > 0) {
+    tempMaxX = stepX * Math.floor(Math.sqrt(numberOfBlocks));
+    tempMaxY = stepY * Math.floor(Math.sqrt(numberOfBlocks));
+  }
+
+  const cedd = new Float64Array(144);
+  const fuzzy10 = new Float64Array(10);
+  const fuzzy24 = new Float64Array(24);
+  const edges = new Int32Array(6);
+
+  const halfStepX = stepX / 2;
+  const halfStepY = stepY / 2;
+  const invBlockArea4 = 4.0 / (stepX * stepY);
+
+  const T0 = 14.0;
+  const T1 = 0.68;
+  const T2 = 0.98;
+  const T3 = 0.98;
+
+  for (let y = 0; y < tempMaxY; y += stepY) {
+    for (let x = 0; x < tempMaxX; x += stepX) {
+      let area1 = 0;
+      let area2 = 0;
+      let area3 = 0;
+      let area4 = 0;
+      let sumR = 0;
+      let sumG = 0;
+      let sumB = 0;
+
+      for (let i = y; i < y + stepY; i++) {
+        const rowOffset = i * width;
+        for (let j = x; j < x + stepX; j++) {
+          const pIdx = rowOffset + j;
+          const luma = imgGridLuma[pIdx];
+          sumR += imgGridR[pIdx];
+          sumG += imgGridG[pIdx];
+          sumB += imgGridB[pIdx];
+
+          const left = j < x + halfStepX;
+          const top = i < y + halfStepY;
+          if (left && top) area1 += luma;
+          else if (!left && top) area2 += luma;
+          else if (left && !top) area3 += luma;
+          else area4 += luma;
+        }
+      }
+
+      const a1 = Math.floor(area1 * invBlockArea4);
+      const a2 = Math.floor(area2 * invBlockArea4);
+      const a3 = Math.floor(area3 * invBlockArea4);
+      const a4 = Math.floor(area4 * invBlockArea4);
+
+      let m1 = Math.abs(a1 * 2 + a2 * -2 + a3 * -2 + a4 * 2);
+      let m2 = Math.abs(a1 * 1 + a2 * 1 + a3 * -1 + a4 * -1);
+      let m3 = Math.abs(a1 * 1 + a2 * -1 + a3 * 1 + a4 * -1);
+      let m4 = Math.abs(a1 * Math.SQRT2 - a4 * Math.SQRT2);
+      let m5 = Math.abs(a2 * Math.SQRT2 - a3 * Math.SQRT2);
+
+      const maxM = Math.max(m1, Math.max(m2, Math.max(m3, Math.max(m4, m5))));
+      let T = -1;
+
+      if (maxM < T0) {
+        edges[0] = 0;
+        T = 0;
+      } else {
+        m1 /= maxM;
+        m2 /= maxM;
+        m3 /= maxM;
+        m4 /= maxM;
+        m5 /= maxM;
+
+        if (m1 > T1) {
+          T++;
+          edges[T] = 1;
+        }
+        if (m2 > T2) {
+          T++;
+          edges[T] = 2;
+        }
+        if (m3 > T2) {
+          T++;
+          edges[T] = 3;
+        }
+        if (m4 > T3) {
+          T++;
+          edges[T] = 4;
+        }
+        if (m5 > T3) {
+          T++;
+          edges[T] = 5;
+        }
+      }
+
+      const totalBlockPixels = stepX * stepY;
+      const meanR = Math.floor(sumR / totalBlockPixels);
+      const meanG = Math.floor(sumG / totalBlockPixels);
+      const meanB = Math.floor(sumB / totalBlockPixels);
+
+      const [h, s, v] = rgbToHsv(meanR, meanG, meanB);
+      applyFuzzy10(h, s, v, fuzzy10);
+      applyFuzzy24(h, s, v, fuzzy10, fuzzy24);
+
+      for (let i = 0; i <= T; i++) {
+        const edgeOffset = 24 * edges[i];
+        for (let j = 0; j < 24; j++) {
+          if (fuzzy24[j] > 0) {
+            cedd[edgeOffset + j] += fuzzy24[j];
+          }
+        }
+      }
+    }
+  }
+
+  let sum = 0;
+  for (let i = 0; i < 144; i++) sum += cedd[i];
+  if (sum > 0) {
+    for (let i = 0; i < 144; i++) cedd[i] /= sum;
+  }
+
+  // Quantize 144 bins to 3-bit values [0..7]
+  const quantized = new Uint8Array(144);
+  for (let section = 0; section < 6; section++) {
+    const qTable = QUANT_TABLES[section];
+    const start = section * 24;
+    for (let i = 0; i < 24; i++) {
+      const val = cedd[start + i];
+      let bestDist = 1.0;
+      let bestBin = 0;
+      for (let j = 0; j < 8; j++) {
+        const dist = Math.abs(val - qTable[j] / 1000000);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestBin = j;
+        }
+      }
+      quantized[start + i] = bestBin;
+    }
+  }
+
+  return Array.from(quantized);
+}
+
 export const CEDD: FeatureExtractor = {
-  name: "CEDD",
-  code: "ce",
-
-  extract(image: PixelData): FeatureResult {
-    const width = image.width;
-    const height = image.height;
-    const channels = image.channels ?? 4;
-    const data = image.data;
-
-    let numberOfBlocks = -1;
-    const minDim = Math.min(width, height);
-    if (minDim >= 80) numberOfBlocks = 1600;
-    else if (minDim >= 40) numberOfBlocks = 400;
-
-    let stepX = 2;
-    let stepY = 2;
-    if (numberOfBlocks > 0) {
-      stepX = Math.floor(width / Math.sqrt(numberOfBlocks));
-      stepY = Math.floor(height / Math.sqrt(numberOfBlocks));
-      if (stepX % 2 !== 0) stepX -= 1;
-      if (stepY % 2 !== 0) stepY -= 1;
-    }
-    if (stepX <= 0) stepX = 2;
-    if (stepY <= 0) stepY = 2;
-
-    const imgGridR = new Int32Array(width * height);
-    const imgGridG = new Int32Array(width * height);
-    const imgGridB = new Int32Array(width * height);
-    const imgGridLuma = new Float64Array(width * height);
-
-    for (let y = 0; y < height; y++) {
-      const rowOffset = y * width;
-      for (let x = 0; x < width; x++) {
-        const idx = (rowOffset + x) * channels;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        imgGridR[rowOffset + x] = r;
-        imgGridG[rowOffset + x] = g;
-        imgGridB[rowOffset + x] = b;
-        imgGridLuma[rowOffset + x] = 0.114 * b + 0.587 * g + 0.299 * r;
-      }
-    }
-
-    let tempMaxX = stepX * Math.floor(width >> 1);
-    let tempMaxY = stepY * Math.floor(height >> 1);
-    if (numberOfBlocks > 0) {
-      const sqrtBlocks = Math.floor(Math.sqrt(numberOfBlocks));
-      tempMaxX = stepX * sqrtBlocks;
-      tempMaxY = stepY * sqrtBlocks;
-    }
-
-    const cedd = new Float64Array(144);
-    const fuzzy10 = new Float64Array(10);
-    const fuzzy24 = new Float64Array(24);
-    const edges = new Int32Array(6);
-
-    const halfStepX = stepX / 2;
-    const halfStepY = stepY / 2;
-    const invBlockArea4 = 4.0 / (stepX * stepY);
-    const totalBlockPixels = stepX * stepY;
-
-    const T0 = 14.0;
-    const T1 = 0.68;
-    const T2 = 0.98;
-    const T3 = 0.98;
-
-    for (let y = 0; y < tempMaxY; y += stepY) {
-      for (let x = 0; x < tempMaxX; x += stepX) {
-        let area1 = 0;
-        let area2 = 0;
-        let area3 = 0;
-        let area4 = 0;
-        let sumR = 0;
-        let sumG = 0;
-        let sumB = 0;
-
-        for (let i = y; i < y + stepY; i++) {
-          const rowOffset = i * width;
-          for (let j = x; j < x + stepX; j++) {
-            const pIdx = rowOffset + j;
-            const luma = imgGridLuma[pIdx];
-            sumR += imgGridR[pIdx];
-            sumG += imgGridG[pIdx];
-            sumB += imgGridB[pIdx];
-
-            const left = j < x + halfStepX;
-            const top = i < y + halfStepY;
-            if (left && top) area1 += luma;
-            else if (!left && top) area2 += luma;
-            else if (left && !top) area3 += luma;
-            else area4 += luma;
-          }
-        }
-
-        const a1 = Math.floor(area1 * invBlockArea4);
-        const a2 = Math.floor(area2 * invBlockArea4);
-        const a3 = Math.floor(area3 * invBlockArea4);
-        const a4 = Math.floor(area4 * invBlockArea4);
-
-        let m1 = Math.abs(a1 * 2 + a2 * -2 + a3 * -2 + a4 * 2);
-        let m2 = Math.abs(a1 * 1 + a2 * 1 + a3 * -1 + a4 * -1);
-        let m3 = Math.abs(a1 * 1 + a2 * -1 + a3 * 1 + a4 * -1);
-        let m4 = Math.abs(a1 * Math.SQRT2 - a4 * Math.SQRT2);
-        let m5 = Math.abs(a2 * Math.SQRT2 - a3 * Math.SQRT2);
-
-        const maxM = Math.max(m1, Math.max(m2, Math.max(m3, Math.max(m4, m5))));
-        let T = -1;
-
-        if (maxM < T0) {
-          edges[0] = 0;
-          T = 0;
-        } else {
-          m1 /= maxM;
-          m2 /= maxM;
-          m3 /= maxM;
-          m4 /= maxM;
-          m5 /= maxM;
-
-          if (m1 > T1) {
-            T++;
-            edges[T] = 1;
-          }
-          if (m2 > T2) {
-            T++;
-            edges[T] = 2;
-          }
-          if (m3 > T2) {
-            T++;
-            edges[T] = 3;
-          }
-          if (m4 > T3) {
-            T++;
-            edges[T] = 4;
-          }
-          if (m5 > T3) {
-            T++;
-            edges[T] = 5;
-          }
-        }
-
-        const meanR = Math.floor(sumR / totalBlockPixels);
-        const meanG = Math.floor(sumG / totalBlockPixels);
-        const meanB = Math.floor(sumB / totalBlockPixels);
-
-        const [h, s, v] = rgbToHsv(meanR, meanG, meanB);
-        applyFuzzy10(h, s, v, fuzzy10);
-        applyFuzzy24(h, s, v, fuzzy10, fuzzy24);
-
-        for (let i = 0; i <= T; i++) {
-          const edgeOffset = 24 * edges[i];
-          for (let j = 0; j < 24; j++) {
-            if (fuzzy24[j] > 0) {
-              cedd[edgeOffset + j] += fuzzy24[j];
-            }
-          }
-        }
-      }
-    }
-
-    let sum = 0;
-    for (let i = 0; i < 144; i++) sum += cedd[i];
-    if (sum > 0) {
-      for (let i = 0; i < 144; i++) cedd[i] /= sum;
-    }
-
-    // Quantize 144 bins to 3-bit values [0..7]
-    const quantized = new Uint8Array(144);
-    for (let section = 0; section < 6; section++) {
-      const qTable = QUANT_TABLES[section];
-      const start = section * 24;
-      for (let i = 0; i < 24; i++) {
-        const val = cedd[start + i];
-        let bestDist = 1.0;
-        let bestBin = 0;
-        for (let j = 0; j < 8; j++) {
-          const dist = Math.abs(val - qTable[j] / 1000000);
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestBin = j;
-          }
-        }
-        quantized[start + i] = bestBin;
-      }
-    }
-
-    const featureVector = Array.from(quantized);
-
-    // Pack into bytes: find trailing zeros
-    let lastNonZero = -1;
-    for (let i = 143; i >= 0; i--) {
-      if (quantized[i] !== 0) {
-        lastNonZero = i;
-        break;
-      }
-    }
-    const packedLen = lastNonZero < 0 ? 0 : Math.floor(lastNonZero / 2) + 1;
-    const byteArray = new Uint8Array(packedLen);
-    for (let i = 0; i < packedLen; i++) {
-      const high = quantized[i << 1];
-      const low = (i << 1) + 1 < 144 ? quantized[(i << 1) + 1] : 0;
-      const val = (high << 4) | (low & 0x0f);
-      byteArray[i] = (val - 128) & 0xff;
-    }
-
-    return {
-      featureVector,
-      byteArray,
-      base64: bytesToBase64(byteArray),
-    };
+  extract(image: PixelData): number[] {
+    return extractCEDDVector(image);
   },
 
-  distance(a: number[] | Uint8Array, b: number[] | Uint8Array): number {
-    let histA: number[];
-    let histB: number[];
+  encode: encodeCEDD,
+  decode: decodeCEDD,
 
-    if (a instanceof Uint8Array || a.length <= 72) {
-      histA = new Array(144).fill(0);
-      for (let i = 0; i < a.length; i++) {
-        const tmp = (a[i] + 128) & 0xff;
-        histA[i << 1] = (tmp >> 4) & 0x0f;
-        if ((i << 1) + 1 < 144) histA[(i << 1) + 1] = tmp & 0x0f;
+  distance(a: number[] | string, b: number[] | string): number {
+    const toVector = (x: number[] | string): number[] => {
+      if (typeof x === "string") {
+        return decodeCEDD(x);
       }
-    } else {
-      histA = a as number[];
-    }
+      return x;
+    };
 
-    if (b instanceof Uint8Array || b.length <= 72) {
-      histB = new Array(144).fill(0);
-      for (let i = 0; i < b.length; i++) {
-        const tmp = (b[i] + 128) & 0xff;
-        histB[i << 1] = (tmp >> 4) & 0x0f;
-        if ((i << 1) + 1 < 144) histB[(i << 1) + 1] = tmp & 0x0f;
-      }
-    } else {
-      histB = b as number[];
-    }
+    const histA = toVector(a);
+    const histB = toVector(b);
 
     let temp1 = 0;
     let temp2 = 0;

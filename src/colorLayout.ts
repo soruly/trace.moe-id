@@ -1,5 +1,5 @@
-import { FeatureExtractor, FeatureResult, PixelData } from "./types.js";
-import { bytesToBase64 } from "./utils.js";
+import { FeatureExtractor, PixelData } from "./types.js";
+import { bytesToBase64Url, base64UrlToBytes } from "./utils.js";
 
 const ARRAY_ZIGZAG = new Uint8Array([
   0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
@@ -116,125 +116,194 @@ function fdct(shapes: Int16Array | Int32Array): void {
   }
 }
 
-export const ColorLayout: FeatureExtractor = {
-  name: "ColorLayout",
-  code: "cl",
+/**
+ * Encodes a 33-coefficient ColorLayout feature vector into a compact URL-safe base64 string.
+ *
+ * Bit allocations:
+ * - Y DC (index 0): 6 bits
+ * - Y AC (indices 1..20, 20 coeffs): 5 bits each
+ * - Cb DC (index 21): 6 bits
+ * - Cb AC (indices 22..26, 5 coeffs): 5 bits each
+ * - Cr DC (index 27): 6 bits
+ * - Cr AC (indices 28..32, 5 coeffs): 5 bits each
+ */
+export function encodeColorLayout(vector: number[]): string {
+  const bytes = new Uint8Array(21);
+  let bitOffset = 0;
 
-  extract(image: PixelData): FeatureResult {
-    const width = image.width;
-    const height = image.height;
-    const channels = image.channels ?? 4;
-    const data = image.data;
-
-    const sumR = new Float32Array(64);
-    const sumG = new Float32Array(64);
-    const sumB = new Float32Array(64);
-
-    const xStart = new Uint32Array(9);
-    const yStart = new Uint32Array(9);
-    for (let i = 0; i <= 8; i++) {
-      xStart[i] = Math.ceil((i * width) / 8);
-      yStart[i] = Math.ceil((i * height) / 8);
+  const writeBits = (val: number, numBits: number) => {
+    for (let i = numBits - 1; i >= 0; i--) {
+      const bit = (val >> i) & 1;
+      const byteIdx = bitOffset >> 3;
+      const bitIdx = 7 - (bitOffset & 7);
+      bytes[byteIdx] |= bit << bitIdx;
+      bitOffset++;
     }
+  };
 
-    let ptr = 0;
-    for (let by = 0; by < 8; by++) {
-      const yEnd = yStart[by + 1];
-      for (let y = yStart[by]; y < yEnd; y++) {
-        for (let bx = 0; bx < 8; bx++) {
-          const xEnd = xStart[bx + 1];
-          const kIdx = (by << 3) + bx;
+  // Y (index 0: 6 bits, indices 1..20: 5 bits)
+  writeBits(vector[0], 6);
+  for (let i = 1; i <= 20; i++) writeBits(vector[i], 5);
 
-          let sR = sumR[kIdx];
-          let sG = sumG[kIdx];
-          let sB = sumB[kIdx];
+  // Cb (index 21: 6 bits, indices 22..26: 5 bits)
+  writeBits(vector[21], 6);
+  for (let i = 22; i <= 26; i++) writeBits(vector[i], 5);
 
-          for (let x = xStart[bx]; x < xEnd; x++) {
-            sR += data[ptr];
-            sG += data[ptr + 1];
-            sB += data[ptr + 2];
-            ptr += channels;
-          }
-          sumR[kIdx] = sR;
-          sumG[kIdx] = sG;
-          sumB[kIdx] = sB;
-        }
-      }
+  // Cr (index 27: 6 bits, indices 28..32: 5 bits)
+  writeBits(vector[27], 6);
+  for (let i = 28; i <= 32; i++) writeBits(vector[i], 5);
+
+  return bytesToBase64Url(bytes);
+}
+
+/**
+ * Decodes a URL-safe base64 string back into the 33-coefficient feature vector.
+ */
+export function decodeColorLayout(hash: string): number[] {
+  const bytes = base64UrlToBytes(hash);
+  let bitOffset = 0;
+
+  const readBits = (numBits: number): number => {
+    let val = 0;
+    for (let i = 0; i < numBits; i++) {
+      const byteIdx = bitOffset >> 3;
+      const bitIdx = 7 - (bitOffset & 7);
+      val = (val << 1) | ((bytes[byteIdx] >> bitIdx) & 1);
+      bitOffset++;
     }
+    return val;
+  };
 
-    const shape = [new Int16Array(64), new Int16Array(64), new Int16Array(64)];
-    for (let by = 0; by < 8; by++) {
-      const h = yStart[by + 1] - yStart[by];
+  const v = new Array(33);
+  // Y
+  v[0] = readBits(6);
+  for (let i = 1; i <= 20; i++) v[i] = readBits(5);
+
+  // Cb
+  v[21] = readBits(6);
+  for (let i = 22; i <= 26; i++) v[i] = readBits(5);
+
+  // Cr
+  v[27] = readBits(6);
+  for (let i = 28; i <= 32; i++) v[i] = readBits(5);
+
+  return v;
+}
+
+function extractColorLayoutVector(image: PixelData): number[] {
+  const width = image.width;
+  const height = image.height;
+  const channels = image.channels ?? 4;
+  const data = image.data;
+
+  const sumR = new Float32Array(64);
+  const sumG = new Float32Array(64);
+  const sumB = new Float32Array(64);
+
+  const xStart = new Uint32Array(9);
+  const yStart = new Uint32Array(9);
+  for (let i = 0; i <= 8; i++) {
+    xStart[i] = Math.ceil((i * width) / 8);
+    yStart[i] = Math.ceil((i * height) / 8);
+  }
+
+  let ptr = 0;
+  for (let by = 0; by < 8; by++) {
+    const yEnd = yStart[by + 1];
+    for (let y = yStart[by]; y < yEnd; y++) {
       for (let bx = 0; bx < 8; bx++) {
-        const w = xStart[bx + 1] - xStart[bx];
-        const count = w * h;
+        const xEnd = xStart[bx + 1];
         const kIdx = (by << 3) + bx;
 
-        if (count !== 0) {
-          const invCount = 1 / (count * 256);
-          const R = sumR[kIdx] * invCount;
-          const G = sumG[kIdx] * invCount;
-          const B = sumB[kIdx] * invCount;
+        let sR = sumR[kIdx];
+        let sG = sumG[kIdx];
+        let sB = sumB[kIdx];
 
-          const yy = 0.299 * R + 0.587 * G + 0.114 * B;
-          shape[0][kIdx] = Math.floor(219 * yy + 16.5);
-          shape[1][kIdx] = Math.floor(126.336 * (B - yy) + 128.5);
-          shape[2][kIdx] = Math.floor(159.712 * (R - yy) + 128.5);
+        for (let x = xStart[bx]; x < xEnd; x++) {
+          sR += data[ptr];
+          sG += data[ptr + 1];
+          sB += data[ptr + 2];
+          ptr += channels;
         }
+        sumR[kIdx] = sR;
+        sumG[kIdx] = sG;
+        sumB[kIdx] = sB;
       }
     }
+  }
 
-    fdct(shape[0]);
-    fdct(shape[1]);
-    fdct(shape[2]);
+  const shape = [new Int16Array(64), new Int16Array(64), new Int16Array(64)];
+  for (let by = 0; by < 8; by++) {
+    const h = yStart[by + 1] - yStart[by];
+    for (let bx = 0; bx < 8; bx++) {
+      const w = xStart[bx + 1] - xStart[bx];
+      const count = w * h;
+      const kIdx = (by << 3) + bx;
 
-    const numYCoeff = 21;
-    const numCCoeff = 6;
-    const YCoeff = new Int16Array(64);
-    const CbCoeff = new Int16Array(64);
-    const CrCoeff = new Int16Array(64);
+      if (count !== 0) {
+        const invCount = 1 / (count * 256);
+        const R = sumR[kIdx] * invCount;
+        const G = sumG[kIdx] * invCount;
+        const B = sumB[kIdx] * invCount;
 
-    YCoeff[0] = quantYdc(shape[0][0] >> 3) >> 1;
-    CbCoeff[0] = quantCdc(shape[1][0] >> 3);
-    CrCoeff[0] = quantCdc(shape[2][0] >> 3);
-
-    for (let i = 1; i < 64; i++) {
-      const zigZagIdx = ARRAY_ZIGZAG[i];
-      YCoeff[i] = quantAc(shape[0][zigZagIdx] >> 1) >> 3;
-      CbCoeff[i] = quantAc(shape[1][zigZagIdx]) >> 3;
-      CrCoeff[i] = quantAc(shape[2][zigZagIdx]) >> 3;
+        const yy = 0.299 * R + 0.587 * G + 0.114 * B;
+        shape[0][kIdx] = Math.floor(219 * yy + 16.5);
+        shape[1][kIdx] = Math.floor(126.336 * (B - yy) + 128.5);
+        shape[2][kIdx] = Math.floor(159.712 * (R - yy) + 128.5);
+      }
     }
+  }
 
-    // Standard 33-coefficient feature vector
-    const featureVector: number[] = new Array(numYCoeff + numCCoeff * 2);
-    for (let i = 0; i < numYCoeff; i++) featureVector[i] = YCoeff[i];
-    for (let i = 0; i < numCCoeff; i++) {
-      featureVector[i + numYCoeff] = CbCoeff[i];
-      featureVector[i + numYCoeff + numCCoeff] = CrCoeff[i];
-    }
+  fdct(shape[0]);
+  fdct(shape[1]);
+  fdct(shape[2]);
 
-    // Binary packed byte array: 2 header bytes + 33 coefficients = 35 bytes
-    const byteArray = new Uint8Array(2 + numYCoeff + 2 * numCCoeff);
-    byteArray[0] = numYCoeff;
-    byteArray[1] = numCCoeff;
-    for (let i = 0; i < numYCoeff; i++) {
-      byteArray[2 + i] = YCoeff[i] & 0xff;
-    }
-    for (let i = 0; i < numCCoeff; i++) {
-      byteArray[2 + numYCoeff + i] = CbCoeff[i] & 0xff;
-      byteArray[2 + numYCoeff + numCCoeff + i] = CrCoeff[i] & 0xff;
-    }
+  const numYCoeff = 21;
+  const numCCoeff = 6;
+  const YCoeff = new Int16Array(64);
+  const CbCoeff = new Int16Array(64);
+  const CrCoeff = new Int16Array(64);
 
-    return {
-      featureVector,
-      byteArray,
-      base64: bytesToBase64(byteArray),
-    };
+  YCoeff[0] = quantYdc(shape[0][0] >> 3) >> 1;
+  CbCoeff[0] = quantCdc(shape[1][0] >> 3);
+  CrCoeff[0] = quantCdc(shape[2][0] >> 3);
+
+  for (let i = 1; i < 64; i++) {
+    const zigZagIdx = ARRAY_ZIGZAG[i];
+    YCoeff[i] = quantAc(shape[0][zigZagIdx] >> 1) >> 3;
+    CbCoeff[i] = quantAc(shape[1][zigZagIdx]) >> 3;
+    CrCoeff[i] = quantAc(shape[2][zigZagIdx]) >> 3;
+  }
+
+  // Standard 33-coefficient feature vector
+  const featureVector: number[] = new Array(numYCoeff + numCCoeff * 2);
+  for (let i = 0; i < numYCoeff; i++) featureVector[i] = YCoeff[i];
+  for (let i = 0; i < numCCoeff; i++) {
+    featureVector[i + numYCoeff] = CbCoeff[i];
+    featureVector[i + numYCoeff + numCCoeff] = CrCoeff[i];
+  }
+
+  return featureVector;
+}
+
+export const ColorLayout: FeatureExtractor = {
+  extract(image: PixelData): number[] {
+    return extractColorLayoutVector(image);
   },
 
-  distance(a: number[] | Uint8Array, b: number[] | Uint8Array): number {
-    const vecA = Array.isArray(a) ? a : Array.from(a.slice(2));
-    const vecB = Array.isArray(b) ? b : Array.from(b.slice(2));
+  encode: encodeColorLayout,
+  decode: decodeColorLayout,
+
+  distance(a: number[] | string, b: number[] | string): number {
+    const toVector = (x: number[] | string): number[] => {
+      if (typeof x === "string") {
+        return decodeColorLayout(x);
+      }
+      return x;
+    };
+
+    const vecA = toVector(a);
+    const vecB = toVector(b);
 
     const numY = 21;
     const numC = 6;

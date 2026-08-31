@@ -9,18 +9,13 @@ export interface PixelData {
   channels?: 3 | 4;
 }
 
-export interface FeatureResult {
-  /** The numerical feature vector/histogram (e.g. 33 values for ColorLayout, 80 for EdgeHistogram, 144 for CEDD) */
-  featureVector: number[];
-  /** Exact binary packed byte array matching Java LIRE serialization */
-  byteArray: Uint8Array;
-  /** Standard Base64 representation of byteArray for Solr / DB indexing */
-  base64: string;
-}
-
 export interface FeatureExtractor {
-  readonly name: string;
-  readonly code: string;
-  extract(image: PixelData): FeatureResult;
-  distance(a: number[] | Uint8Array, b: number[] | Uint8Array): number;
+  /** Extracts the numerical feature vector from an image */
+  extract(image: PixelData): number[];
+  /** Encodes a numerical feature vector into a compact URL-safe base64 string */
+  encode(vector: number[]): string;
+  /** Decodes a compact URL-safe base64 string back into the standardized numerical feature vector */
+  decode(hash: string): number[];
+  /** Calculates visual distance between two descriptors (supports number[] or URL-safe base64 string) */
+  distance(a: number[] | string, b: number[] | string): number;
 }

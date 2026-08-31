@@ -23,15 +23,15 @@ Designed for reverse image search, content-based image retrieval (CBIR), and vis
 
 ## Supported Descriptors
 
-| Code     | Extractor              | Feature Vector                            | Packed Bytes          | Distance Metric           | Description                                                           |
-| :------- | :--------------------- | :---------------------------------------- | :-------------------- | :------------------------ | :-------------------------------------------------------------------- |
-| **`cl`** | `ColorLayout`          | 33 values (21 Y, 6 Cb, 6 Cr)              | 35 bytes              | MPEG-7 Weighted Euclidean | MPEG-7 spatial color distribution via 8×8 DCT                         |
-| **`eh`** | `EdgeHistogram`        | 80 bins (16 sub-images × 5 edge types)    | 40 bytes              | MPEG-7 Edge Metric        | MPEG-7 spatial distribution of 5 directional edge types               |
-| **`ce`** | `CEDD`                 | 144 bins                                  | Variable (≤ 54 bytes) | Tanimoto Distance         | Color and Edge Directivity Descriptor (Fuzzy 10/24 color + edges)     |
-| **`fc`** | `FCTH`                 | 192 bins                                  | Variable (≤ 72 bytes) | Tanimoto Distance         | Fuzzy Color and Texture Histogram (Fuzzy 10/24 color + Haar wavelets) |
-| **`jc`** | `JCD`                  | 168 bins                                  | Variable (≤ 54 bytes) | Tanimoto Distance         | Joint Composite Descriptor combining CEDD and FCTH                    |
-| **`ac`** | `AutoColorCorrelogram` | 256 entries (64 HSV colors × 4 distances) | 128 bytes             | Jensen-Shannon Divergence | Spatial color correlations across distance radii D = {1, 2, 3, 4}     |
-| **`oh`** | `OpponentHistogram`    | 64 bins (4 × 4 × 4 in Opponent space)     | 64 bytes              | Jensen-Shannon Divergence | Shift-invariant color histogram in (O1, O2, O3) space                 |
+| Code     | Extractor              | Feature Vector                            | URL-Safe Base64 Hash | Distance Metric           | Description                                                           |
+| :------- | :--------------------- | :---------------------------------------- | :------------------- | :------------------------ | :-------------------------------------------------------------------- |
+| **`cl`** | `ColorLayout`          | 33 values (21 Y, 6 Cb, 6 Cr)              | **28 chars**         | MPEG-7 Weighted Euclidean | MPEG-7 spatial color distribution via 8×8 DCT                         |
+| **`eh`** | `EdgeHistogram`        | 80 bins (16 sub-images × 5 edge types)    | **40 chars**         | MPEG-7 Edge Metric        | MPEG-7 spatial distribution of 5 directional edge types               |
+| **`ce`** | `CEDD`                 | 144 bins                                  | **72 chars**         | Tanimoto Distance         | Color and Edge Directivity Descriptor (Fuzzy 10/24 color + edges)     |
+| **`fc`** | `FCTH`                 | 192 bins                                  | **96 chars**         | Tanimoto Distance         | Fuzzy Color and Texture Histogram (Fuzzy 10/24 color + Haar wavelets) |
+| **`jc`** | `JCD`                  | 168 bins                                  | **112 chars**        | Tanimoto Distance         | Joint Composite Descriptor combining CEDD and FCTH                    |
+| **`oh`** | `OpponentHistogram`    | 64 bins (4 × 4 × 4 in Opponent space)     | **75 chars**         | Jensen-Shannon Divergence | Shift-invariant color histogram in (O1, O2, O3) space                 |
+| **`ac`** | `AutoColorCorrelogram` | 256 entries (64 HSV colors × 4 distances) | **171 chars**        | Jensen-Shannon Divergence | Spatial color correlations across distance radii D = {1, 2, 3, 4}     |
 
 > Note: All implementations are verified against the reference [LIRE](https://github.com/dermotte/LIRE) implementations.
 
@@ -63,26 +63,27 @@ const image = {
   channels: info.channels, // supports 3 (RGB) or 4 (RGBA)
 };
 
-// Extract a single descriptor (e.g. ColorLayout)
-const cl = ColorLayout.extract(image);
-console.log(cl.featureVector); // number[]: [38, 5, 2, ...] (33 coefficients)
-console.log(cl.byteArray); // Uint8Array(35): [21, 6, ...]
-console.log(cl.base64); // string: Base64 string for Solr/DB indexing
+// Extract a single descriptor vector (e.g. ColorLayout)
+const vector = ColorLayout.extract(image); // number[]: [38, 5, 2, ...] (33 coefficients)
 
-// Extract all descriptors by default
+// Encode into compact URL-safe base64 hash string
+const hash = ColorLayout.encode(vector); // string: "ChCEIQhCEIQhCEIQhCCEIQhBCEIQ" (28 chars)
+
+// Decode hash string back into feature vector
+const decoded = ColorLayout.decode(hash); // number[]
+
+// Extract all descriptors at once
 const all = extract(image);
-console.log(all.cl.base64);
-console.log(all.eh.base64);
-console.log(all.ce.base64);
-console.log(all.fc.base64);
-console.log(all.jc.base64);
-console.log(all.ac.base64);
-console.log(all.oh.base64);
+console.log(all.cl); // number[] (ColorLayout)
+console.log(all.eh); // number[] (EdgeHistogram)
+console.log(all.ce); // number[] (CEDD)
+console.log(all.fc); // number[] (FCTH)
+console.log(all.jc); // number[] (JCD)
+console.log(all.ac); // number[] (AutoColorCorrelogram)
+console.log(all.oh); // number[] (OpponentHistogram)
 
-// Extract only two specific descriptors (e.g. ColorLayout & EdgeHistogram)
+// Extract specific descriptors
 const { cl, eh } = extract(image, ["cl", "eh"]);
-console.log(cl.base64);
-console.log(eh.base64);
 ```
 
 ### 2. Web Browser (with HTML5 `<canvas>` / `ImageData`)
@@ -101,8 +102,7 @@ const image = {
   channels: 4, // getImageData always returns 4 channels (RGBA)
 };
 
-const ceddResult = CEDD.extract(image);
-console.log(ceddResult.base64);
+const ceddVector = CEDD.extract(image); // number[]: 144 bins
 ```
 
 ### 3. Measuring Visual Distance Between Two Images
@@ -110,26 +110,30 @@ console.log(ceddResult.base64);
 Each extractor provides a `.distance()` method implementing its standardized metric:
 
 ```typescript
-import { ColorLayout, CEDD } from "trace.moe-id";
+import { ColorLayout } from "trace.moe-id";
 
-const img1 = ColorLayout.extract(image1);
-const img2 = ColorLayout.extract(image2);
+const vec1 = ColorLayout.extract(image1);
+const vec2 = ColorLayout.extract(image2);
 
-// Compare using either byte arrays or raw feature vectors:
-const dist = ColorLayout.distance(img1.byteArray, img2.byteArray);
-console.log(`Visual Distance: ${dist}`); // 0 = identical
+// Compare using either numerical vectors or compact URL-safe hash strings:
+const distVectors = ColorLayout.distance(vec1, vec2);
+const hash1 = ColorLayout.encode(vec1);
+const hash2 = ColorLayout.encode(vec2);
+const distHashes = ColorLayout.distance(hash1, hash2);
+
+console.log(`Visual Distance: ${distVectors}`); // 0 = identical
 ```
 
 ### 4. Searching via trace.moe API
 
-The extracted `ColorLayout` vector (`cl.base64` or `cl.featureVector`) can be sent directly to `https://api.trace.moe/search` for fast search without uploading raw image files:
+The extracted `ColorLayout` vector can be sent directly to `https://api.trace.moe/search` for fast search without uploading raw image files:
 
 ```typescript
 const res = await fetch("https://api.trace.moe/search", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    vector: cl.base64, // or cl.featureVector
+    vector: cl,
   }),
 });
 ```
@@ -152,22 +156,25 @@ Benchmark performed on a single Node.js thread:
 | **`ce`**  | CEDD                 | **0.76 ms** | **~1,310 images/sec** |
 | **`fc`**  | FCTH                 | **1.25 ms** | **~800 images/sec**   |
 | **`jc`**  | JCD                  | **1.75 ms** | **~570 images/sec**   |
+| **`ac`**  | AutoColorCorrelogram | **~95 ms**  | **~11 images/sec**    |
 
 ### Distance Throughput (1 vs 1 Visual Comparison)
 
-| Distance Metric          | Avg Time / Comparison | Comparisons / Second   |
-| :----------------------- | :-------------------- | :--------------------- |
-| **EdgeHistogram (`eh`)** | < 0.0003 ms           | **~4,450,000 ops/sec** |
-| **CEDD (`ce`)**          | 0.0006 ms             | **~1,560,000 ops/sec** |
-| **FCTH (`fc`)**          | 0.0007 ms             | **~1,310,000 ops/sec** |
-| **ColorLayout (`cl`)**   | 0.0008 ms             | **~1,240,000 ops/sec** |
-| **JCD (`jc`)**           | 0.0008 ms             | **~1,140,000 ops/sec** |
+| Distance Metric                 | Avg Time / Comparison | Comparisons / Second   |
+| :------------------------------ | :-------------------- | :--------------------- |
+| **EdgeHistogram (`eh`)**        | < 0.0003 ms           | **~4,450,000 ops/sec** |
+| **CEDD (`ce`)**                 | 0.0006 ms             | **~1,560,000 ops/sec** |
+| **FCTH (`fc`)**                 | 0.0007 ms             | **~1,310,000 ops/sec** |
+| **ColorLayout (`cl`)**          | 0.0008 ms             | **~1,240,000 ops/sec** |
+| **JCD (`jc`)**                  | 0.0008 ms             | **~1,140,000 ops/sec** |
+| **OpponentHistogram (`oh`)**    | 0.0014 ms             | **~710,000 ops/sec**   |
+| **AutoColorCorrelogram (`ac`)** | 0.0055 ms             | **~180,000 ops/sec**   |
 
 ---
 
 ## Testing & Verification
 
-Run the built-in regression test suite (170 test cases across 21 synthetic pattern images & edge cases):
+Run the built-in regression test suite (183 test cases across 21 synthetic pattern images & edge cases):
 
 ```bash
 # Build TypeScript

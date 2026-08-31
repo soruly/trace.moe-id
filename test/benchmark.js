@@ -73,26 +73,37 @@ async function main() {
     { code: "fc", name: "FCTH (fc)", extractor: FCTH, iters: 30 },
     { code: "jc", name: "JCD (jc)", extractor: JCD, iters: 15 },
     { code: "oh", name: "OpponentHistogram (oh)", extractor: OpponentHistogram, iters: 100 },
-    { code: "ac", name: "AutoColorCorrelogram (ac)", extractor: AutoColorCorrelogram, iters: 2 },
+    {
+      code: "ac",
+      name: "AutoColorCorrelogram (ac)",
+      extractor: AutoColorCorrelogram,
+      iters: 1,
+      warmup: 0,
+    },
   ];
 
   // 1. Benchmark on Original Full Size Image
   console.log("--- 1. Extraction Speed (Original Image) ---");
   for (const t of targets) {
-    const res = runBenchmark(t.name, () => t.extractor.extract(fullImage), t.iters);
+    const res = runBenchmark(t.name, () => t.extractor.extract(fullImage), t.iters, t.warmup ?? 5);
     resultsOriginal.push(res);
   }
-  const allResOrig = runBenchmark("extract (all 7 features)", () => extract(fullImage), 5);
+  const allResOrig = runBenchmark("extract (all 7 features)", () => extract(fullImage), 1, 0);
   resultsOriginal.push(allResOrig);
   console.table(resultsOriginal);
 
   // 2. Benchmark on Resized Thumbnail (320x240)
   console.log("\n--- 2. Extraction Speed (320x240 Thumbnail) ---");
   for (const t of targets) {
-    const res = runBenchmark(t.name, () => t.extractor.extract(resizedImage), t.iters * 2);
+    const res = runBenchmark(
+      t.name,
+      () => t.extractor.extract(resizedImage),
+      t.code === "ac" ? 10 : t.iters * 2,
+      t.code === "ac" ? 2 : undefined,
+    );
     resultsResized.push(res);
   }
-  const allResThumb = runBenchmark("extract (all 7 features)", () => extract(resizedImage), 50);
+  const allResThumb = runBenchmark("extract (all 7 features)", () => extract(resizedImage), 10, 2);
   resultsResized.push(allResThumb);
   console.table(resultsResized);
 
@@ -103,9 +114,9 @@ async function main() {
     const feature2 = t.extractor.extract(resizedImage);
     const res = runBenchmark(
       `${t.name} distance`,
-      () => t.extractor.distance(feature1.byteArray, feature2.byteArray),
-      50000,
-      1000,
+      () => t.extractor.distance(feature1, feature2),
+      20000,
+      500,
     );
     distanceResults.push(res);
   }

@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { extract } from "../dist/index.js";
+import { extract, extractors } from "../dist/index.js";
 
 const FIXTURES_DIR = new URL("./fixtures/", import.meta.url).pathname;
 
@@ -219,11 +219,11 @@ async function main() {
       features: {},
     };
 
-    for (const [code, res] of Object.entries(results)) {
+    for (const [code, vec] of Object.entries(results)) {
+      const ext = extractors[code];
       referenceResults[pattern.name].features[code] = {
-        vector: res.featureVector,
-        bytes: Array.from(res.byteArray),
-        base64: res.base64,
+        vector: vec,
+        hash: ext.encode(vec),
       };
     }
 
