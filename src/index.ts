@@ -16,12 +16,12 @@ export {
   decodeOpponentHistogram,
 } from "./opponentHistogram.js";
 
+import { AutoColorCorrelogram } from "./autoColorCorrelogram.js";
+import { CEDD } from "./cedd.js";
 import { ColorLayout } from "./colorLayout.js";
 import { EdgeHistogram } from "./edgeHistogram.js";
-import { CEDD } from "./cedd.js";
 import { FCTH } from "./fcth.js";
 import { JCD } from "./jcd.js";
-import { AutoColorCorrelogram } from "./autoColorCorrelogram.js";
 import { OpponentHistogram } from "./opponentHistogram.js";
 import { FeatureExtractor, PixelData } from "./types.js";
 

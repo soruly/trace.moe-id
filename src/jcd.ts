@@ -1,7 +1,7 @@
-import { FeatureExtractor, PixelData } from "./types.js";
-import { encodeFixedBits, decodeFixedBits, bytesToBase64Url, base64UrlToBytes } from "./utils.js";
 import { CEDD } from "./cedd.js";
 import { FCTH } from "./fcth.js";
+import { FeatureExtractor, PixelData } from "./types.js";
+import { encodeFixedBits, decodeFixedBits, bytesToBase64Url, base64UrlToBytes } from "./utils.js";
 
 /**
  * Encodes 168 JCD bins (each scaled by 2, fitting in 4 bits [0..14]) into a compact URL-safe base64 string.

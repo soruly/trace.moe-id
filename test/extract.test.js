@@ -1,8 +1,10 @@
-import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
+import test from "node:test";
+
 import sharp from "sharp";
+
 import { extract, extractors } from "../dist/index.js";
 
 const FIXTURES_DIR = new URL("./fixtures/", import.meta.url).pathname;

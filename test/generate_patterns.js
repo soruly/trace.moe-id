@@ -1,6 +1,8 @@
-import sharp from "sharp";
 import fs from "node:fs/promises";
 import path from "node:path";
+
+import sharp from "sharp";
+
 import { extract, extractors } from "../dist/index.js";
 
 const FIXTURES_DIR = new URL("./fixtures/", import.meta.url).pathname;

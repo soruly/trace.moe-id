@@ -44,7 +44,8 @@ l2/
 │   └── fixtures/               # 21 synthetic pattern images and reference_results.json
 ├── package.json                # Project configuration, scripts, devDependencies
 ├── tsconfig.json               # NodeNext TypeScript compiler options
-└── .prettierrc                 # Code formatting rules
+├── .oxfmtrc.json               # Code formatting rules (Oxfmt)
+└── .oxlintrc.json              # Linter configuration (Oxlint)
 ```
 
 ---
@@ -87,10 +88,13 @@ npm run build
 # Run full test suite (170 test cases against synthetic patterns)
 npm test
 
-# Check code formatting with Prettier
+# Check code using Oxlint
 npm run lint
 
-# Automatically format all files
+# Automatically fix lint issues with Oxlint
+npm run lint:fix
+
+# Automatically format all files with Oxfmt
 npm run format
 
 # Run performance benchmarks

@@ -1,5 +1,6 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
+
 import { ColorLayout, encodeColorLayout, decodeColorLayout } from "../dist/index.js";
 
 test("ColorLayout Extract, Encode, Decode & Distance", async (t) => {

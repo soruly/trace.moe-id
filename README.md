@@ -186,7 +186,10 @@ npm test
 # Run performance benchmarks
 npm run bench
 
-# Format codebase with Prettier
+# Lint codebase with Oxlint
+npm run lint
+
+# Format codebase with Oxfmt
 npm run format
 ```
 

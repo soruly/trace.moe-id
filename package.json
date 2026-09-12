@@ -2,26 +2,33 @@
   "name": "trace.moe-id",
   "version": "2.0.0",
   "description": "Fast, zero-dependency, isomorphic visual feature descriptor library (MPEG-7, CEDD, FCTH, JCD, AutoColorCorrelogram, OpponentHistogram)",
+  "keywords": [
+    "cbir",
+    "cedd",
+    "color-layout",
+    "edge-histogram",
+    "fcth",
+    "image-descriptors",
+    "image-features",
+    "jcd",
+    "lire",
+    "mpeg-7",
+    "reverse-image-search",
+    "trace.moe",
+    "visual-features"
+  ],
+  "homepage": "https://github.com/soruly/trace.moe-id",
+  "bugs": {
+    "url": "https://github.com/soruly/trace.moe-id/issues"
+  },
   "license": "MIT",
   "author": "soruly",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/soruly/trace.moe-id.git"
   },
-  "keywords": [
-    "image-descriptors",
-    "cbir",
-    "reverse-image-search",
-    "mpeg-7",
-    "color-layout",
-    "edge-histogram",
-    "cedd",
-    "fcth",
-    "jcd",
-    "lire",
-    "trace.moe",
-    "image-features",
-    "visual-features"
+  "files": [
+    "dist"
   ],
   "type": "module",
   "main": "./dist/index.js",
@@ -32,22 +39,23 @@
       "import": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build && npm test",
-    "test": "node --test test/*.test.js",
     "bench": "node test/benchmark.js",
-    "lint": "prettier --check .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format": "oxfmt",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "test": "oxfmt --check && oxlint && node --test test/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
-    "prettier": "^3.9.6",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0",
     "sharp": "^0.35.4",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

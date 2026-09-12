@@ -1,5 +1,7 @@
-import sharp from "sharp";
 import { performance } from "node:perf_hooks";
+
+import sharp from "sharp";
+
 import {
   ColorLayout,
   EdgeHistogram,

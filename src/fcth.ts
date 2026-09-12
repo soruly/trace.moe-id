@@ -1,6 +1,6 @@
+import { applyFuzzy10, applyFuzzy24, rgbToHsv } from "./cedd.js";
 import { FeatureExtractor, PixelData } from "./types.js";
 import { encodeFixedBits, decodeFixedBits, bytesToBase64Url, base64UrlToBytes } from "./utils.js";
-import { applyFuzzy10, applyFuzzy24, rgbToHsv } from "./cedd.js";
 
 const HORIZ_MEMBERSHIP = [0, 0, 20, 90, 20, 90, 255, 255];
 const VERT_MEMBERSHIP = [0, 0, 20, 90, 20, 90, 255, 255];
