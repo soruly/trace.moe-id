@@ -49,9 +49,9 @@
     "test": "oxfmt --check && oxlint && node --test test/*.test.js"
   },
   "devDependencies": {
-    "@types/node": "^26.6.3",
-    "oxfmt": "^0.71.0",
-    "oxlint": "^1.86.0",
+    "@types/node": "^26.6.6",
+    "oxfmt": "^0.78.0",
+    "oxlint": "^1.93.0",
     "sharp": "^0.35.5",
     "typescript": "^7.0.2"
   },
